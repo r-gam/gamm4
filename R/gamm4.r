@@ -251,11 +251,14 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
     ## Create the deviance function for optimizing over theta:
     devfun <- do.call(mkGlmerDevfun, b)
     ## Optimize over theta using a rough approximation (i.e. nAGQ = 0):
-    opt <- optimizeGlmer(devfun,start=start,verbose=verbose,control=control$optCtrl,
-                         optimizer    = control$optimizer[[1]],
-                         calc.derivs  = control$calc.derivs,
-                         boundary.tol = control$boundary.tol,
-                         nAGQ         = 0)
+    if (control$nAGQ0initStep) {
+      opt <- optimizeGlmer(devfun,start=start,verbose=verbose,control=control$optCtrl,
+                           optimizer    = control$optimizer[[1]],
+                           calc.derivs  = control$calc.derivs,
+                           boundary.tol = control$boundary.tol,
+                           tolPwrss     = control$tolPwrss,
+                           nAGQ         = 0)
+    }
     ## Update the deviance function for optimizing over theta and beta:
     devfun <- updateGlmerDevfun(devfun, b$reTrms)
     ## Optimize over theta and beta:
@@ -263,6 +266,7 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
                          optimizer    = control$optimizer[[2]],
                          calc.derivs  = control$calc.derivs,
                          boundary.tol = control$boundary.tol,
+                         tolPwrss     = control$tolPwrss,
                          nAGQ         = nAGQ)
     ## Package up the results:
     ret$mer <- mkMerMod(environment(devfun), opt, b$reTrms, fr = b$fr)
