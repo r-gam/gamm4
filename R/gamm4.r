@@ -256,7 +256,6 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
                            optimizer    = control$optimizer[[1]],
                            calc.derivs  = control$calc.derivs,
                            boundary.tol = control$boundary.tol,
-                           tolPwrss     = control$tolPwrss,
                            nAGQ         = 0)
     }
     ## Update the deviance function for optimizing over theta and beta:
@@ -266,7 +265,6 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
                          optimizer    = control$optimizer[[2]],
                          calc.derivs  = control$calc.derivs,
                          boundary.tol = control$boundary.tol,
-                         tolPwrss     = control$tolPwrss,
                          nAGQ         = nAGQ)
     ## Package up the results:
     ret$mer <- mkMerMod(environment(devfun), opt, b$reTrms, fr = b$fr)
