@@ -1,5 +1,5 @@
 Package: gamm4
-Version: 0.2-6
+Version: 0.2-7
 Author: Simon Wood, Fabian Scheipl
 Maintainer: Simon Wood <simon.wood@r-project.org>
 Title: Generalized Additive Mixed Models using 'mgcv' and 'lme4'
