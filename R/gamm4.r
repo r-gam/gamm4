@@ -288,7 +288,7 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
     ## Transform  parameters back to the original space....
     bf <- as.numeric(lme4::fixef(ret$mer)) ## the fixed effects
     br <- lme4::ranef(ret$mer) ## a named list
-    if (G$nsdf) p <- bf[1:G$nsdf] else p <- array(0,0) ## fixed parametric componet
+    if (G$nsdf) p <- bf[1:G$nsdf] else p <- array(0,0) ## fixed parametric component
     if (G$m>0) for (i in 1:G$m) {
       fx <- G$smooth[[i]]$fixed 
       first <- G$smooth[[i]]$first.f.para; last <- G$smooth[[i]]$last.f.para
@@ -370,9 +370,8 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
 
     ## NOTE: Cholesky probably better in the following - then pivoting 
     ##       automatic when solving....
-
-    R <- Matrix::chol(V,pivot=TRUE);piv <- attr(R,"pivot") 
-
+    #R <- Matrix::chol(V,pivot=TRUE);piv <- attr(R,"pivot") ## from >1.6-2 pivot not returned!?
+    R <- mgcv::mchol(V);piv <- attr(R,"pivot") 
     G$Xf <- as(G$Xf,"dgCMatrix")
     Xfp <- as(Xfp,"dgCMatrix")
     

@@ -70,11 +70,11 @@ Different terms can use different numbers of knots, unless they share a covariat
 \item{drop.unused.levels}{by default unused levels are dropped from factors before fitting. For some smooths 
 involving factor variables you might want to turn this off. Only do so if you know what you are doing.}
 
-\item{REML}{passed on to \code{\link{lmer}} fitting routines (but not \code{\link{glmer}} fitting routines) to control whether REML or ML is used.}
+\item{REML}{passed on to \code{\link[lme4]{lmer}} fitting routines (but not \code{\link[lme4]{glmer}} fitting routines) to control whether REML or ML is used.}
 
-\item{control}{\code{\link{lmerControl}} or \code{\link{glmerControl}} list as appropriate (\code{NULL} means defaults are used).}
+\item{control}{\code{\link[lme4]{lmerControl}} or \code{\link[lme4]{glmerControl}} list as appropriate (\code{NULL} means defaults are used).}
 
-\item{start}{starting value list as used by \code{\link{lmer}} or \code{\link{glmer}}.}
+\item{start}{starting value list as used by \code{\link[lme4]{lmer}} or \code{\link[lme4]{glmer}}.}
 
 \item{verbose}{passed on to fitting \code{lme4} fitting routines.}
 
@@ -136,7 +136,7 @@ and Hall/CRC Press.
 
 For more GAMM references see \code{\link[mgcv]{gamm}}
 
-\url{http://www.maths.bris.ac.uk/~sw15190/}
+\url{https://www.maths.ed.ac.uk/~swood34/}
 }
 \author{ Simon N. Wood \email{simon.wood@r-project.org}}
 

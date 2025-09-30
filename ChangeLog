@@ -12,6 +12,13 @@ ISSUES:
   When there are only few random effects an alternative computation would 
   be much better.
 
+0.2-7
+
+* Matrix::chol no longer (since 1.6-3) returns the pivot sequence, rendering 
+  it not very useful for many purposes and breaking the covariance matrix 
+  computation in gamm4 - fixed by this version. Thanks to Balint Tamasi for
+  reporting the covariance matrix problem. 
+
 0.2-6
 
 * Removal of code branch compatible with lme<1.0 to avoid warnings.
