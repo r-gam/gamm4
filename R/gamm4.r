@@ -412,9 +412,8 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
     ##       automatic when solving....
 
     if (python_cholmod) {
-      library(reticulate)
-      py_require(packages="scikit-sparse>=0.4.16")
-      cholmod <- import("sksparse.cholmod")
+      reticulate::py_require(packages="scikit-sparse>=0.4.16")
+      cholmod <- reticulate::import("sksparse.cholmod")
       R <- cholmod$cholesky(V)
     } else {
       R <- mgcv::mchol(V);piv <- attr(R,"pivot")
