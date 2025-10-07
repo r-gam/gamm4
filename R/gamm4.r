@@ -354,28 +354,6 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
       }
       ## and finally transform G$Xf into fitting parameterization...
       Xfp[,ind] <- as.matrix(G$Xf[,ind,drop=FALSE]%*%B[ind,ind,drop=FALSE])
-      #rep <- G$Xf[,ind,drop=FALSE]%*%B[ind,ind,drop=FALSE]
-
-      # sparse summaries
-      #sum_rep <- summary(rep)
-      #sum_Xfp <- summary(Xfp)
-
-      # replace column indexes in rep
-      #sum_rep$j <- ind[sum_rep$j]
-
-      # remove columns from orig
-      #sum_Xfp <- subset(sum_Xfp, !(j %in% ind))
-
-      # merge
-      #sum_comb <- rbind(sum_Xfp, sum_rep)
-
-      # recreate updated sparse matrix
-      #Xfp <- sparseMatrix(
-      #  i = sum_comb$i,
-      #  j = sum_comb$j,
-      #  x = sum_comb$x,
-      #  dims = dim(Xfp)
-      #)
     }
  
     object$coefficients <- p
