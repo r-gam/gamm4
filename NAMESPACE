@@ -6,4 +6,4 @@ import(methods)
 export(gamm4)
 importFrom("stats", "as.formula", "delete.response", "deviance",
      "gaussian", "reformulate", "residuals")
-importFrom("utils", "packageVersion")
+importFrom("utils", "packageDescription")
