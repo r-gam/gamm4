@@ -134,11 +134,15 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
     ## if V=diag(v) and s scale and phi = crossprod(root.phi) then...
     ## (V+ZphiZ's)^-1 = V^{-1} - V^{-1}Z(phi^{-1}/s+Z'V^{-1}Z)^{-1} Z'V^{-1} 
     vi <- 1/v
-    R <- mgcv::mchol(tcrossprod(solve(root.phi))/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt))
-    ipiv <- piv <- attr(R,"pivot"); ipiv[piv] <- 1:length(piv)
-    XVX <- t(Xf)%*%(vi*Xf-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xf*vi))[piv,]))[ipiv,])
-    # XVX0 <- t(Xf)%*%solve(Diagonal(n=length(v),x=v)+scale*crossprod(root.phi%*%Zt),Xf) ## equivalent direct
-    XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xfp*vi))[piv,]))[ipiv,]) + Sp^2/scale
+    if (nrow(Zt)>0) {
+      R <- mgcv::mchol(tcrossprod(solve(root.phi))/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt))
+      ipiv <- piv <- attr(R,"pivot"); ipiv[piv] <- 1:length(piv)
+      XVX <- t(Xf)%*%(vi*Xf-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xf*vi))[piv,]))[ipiv,])
+      # XVX0 <- t(Xf)%*%solve(Diagonal(n=length(v),x=v)+scale*crossprod(root.phi%*%Zt),Xf) ## equivalent direct
+      XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xfp*vi))[piv,]))[ipiv,]) + Sp^2/scale
+    } else {
+      XVX <- t(Xf)%*%(vi*Xf); XVXS <- t(Xfp)%*%(vi*Xfp) + Sp^2/scale
+    }
   } else { ## Direct Xf'(diag(v) + crossprod(root.phi%*%Zt))^{-1} Xf
     V <- Diagonal(n=length(v),x=v)
     if (nrow(Zt)>0) V <- V + crossprod(root.phi%*%Zt)*scale ## data or pseudodata cov matrix, treating smooths as fixed now
@@ -505,7 +509,7 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
     object$df.residual <- length(object$y) - sum(object$edf)
 
     object$sig2 <- scale
-    object$method <- if (linear) "lmer.REML" else "glmer.ML"}
+    object$method <- if (linear) "lmer.REML" else "glmer.ML"
 
     object$Vp <- as(Vb,"matrix")
   

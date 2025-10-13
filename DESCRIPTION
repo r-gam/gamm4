@@ -1,5 +1,5 @@
 Package: gamm4
-Version: 0.2-8
+Version: 0.3-0
 Authors@R: c(person(given = "Simon",
                       family = "Wood",
                       role = c("aut","cre"),

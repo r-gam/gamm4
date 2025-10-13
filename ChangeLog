@@ -7,7 +7,7 @@ ISSUES:
   This can happen, quite easily. e.g.  s(x,by=fac1) + s(x,by=fac2) means that
   the columns x:fac1 and x:fac2 are not independent.
 
-0.2-8
+0.3-0
 
 * Pass optimizer arguments to lme4 / lmer
 
