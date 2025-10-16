@@ -125,21 +125,38 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
 ## Outputs:
 ##   Vb is required cov matrix, XVX is Xf'(diag(v) + crossprod(root.phi%*%Zt))^{-1} Xf
 ##   and R its Cholesky factor. Note that R can differ depending on woodbury as a
-##   result of different Pivot sequence - crossproduct(R) is same.
+##   result of different pivot sequence - crossproduct(R) is same.
 ## Basic idea is that cov matrix in fit para is ...
 ##  Vbp = (Xfp'(diag(v) + crossprod(root.phi%*%Zt)*scale)^{-1} Xfp + Sp^2/scale)^{-1}
 ##  and Vb = B Vbp B' in orginal para.
+
+  if (python_cholmod) {
+      reticulate::py_require(packages="scikit-sparse>=0.4.16")
+      cholmod <- reticulate::import("sksparse.cholmod")
+  }
+
+  Xf <- as(Xf,"dgCMatrix")
+  Xfp <- as(Xfp,"dgCMatrix")
 
   if (woodbury) { ## Woodbury formula version of XVX computations
     ## if V=diag(v) and s scale and phi = crossprod(root.phi) then...
     ## (V+ZphiZ's)^-1 = V^{-1} - V^{-1}Z(phi^{-1}/s+Z'V^{-1}Z)^{-1} Z'V^{-1} 
     vi <- 1/v
     if (nrow(Zt)>0) {
-      R <- mgcv::mchol(tcrossprod(solve(root.phi))/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt))
-      ipiv <- piv <- attr(R,"pivot"); ipiv[piv] <- 1:length(piv)
-      XVX <- t(Xf)%*%(vi*Xf-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xf*vi))[piv,]))[ipiv,])
-      # XVX0 <- t(Xf)%*%solve(Diagonal(n=length(v),x=v)+scale*crossprod(root.phi%*%Zt),Xf) ## equivalent direct
-      XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xfp*vi))[piv,]))[ipiv,]) + Sp^2/scale
+      V <- tcrossprod(solve(root.phi))/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt)
+      if (python_cholmod) {
+        R <- cholmod$cholesky(V)
+	X1 <- as.matrix(R$solve_Lt(Zt%*%(Xf*vi),use_LDLt_decomposition=FALSE))
+	XVX <- t(Xf)%*%(vi*Xf-vi*t(Zt)%*%as.matrix(R$solve_L(X1,use_LDLt_decomposition=FALSE)))
+	X1 <- as.matrix(R$solve_Lt(Zt%*%(Xfp*vi),use_LDLt_decomposition=FALSE))
+	XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Zt)%*%as.matrix(R$solve_L(X1,use_LDLt_decomposition=FALSE))) + Sp^2/scale
+      } else {
+        R <- mgcv::mchol(V)
+        ipiv <- piv <- attr(R,"pivot"); ipiv[piv] <- 1:length(piv)
+        XVX <- t(Xf)%*%(vi*Xf-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xf*vi))[piv,]))[ipiv,])
+        # XVX0 <- t(Xf)%*%solve(Diagonal(n=length(v),x=v)+scale*crossprod(root.phi%*%Zt),Xf) ## equivalent direct
+        XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xfp*vi))[piv,]))[ipiv,]) + Sp^2/scale
+      }	
     } else {
       XVX <- t(Xf)%*%(vi*Xf); XVXS <- t(Xfp)%*%(vi*Xfp) + Sp^2/scale
     }
@@ -148,20 +165,11 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
     if (nrow(Zt)>0) V <- V + crossprod(root.phi%*%Zt)*scale ## data or pseudodata cov matrix, treating smooths as fixed now
 
     if (python_cholmod) {
-      reticulate::py_require(packages="scikit-sparse>=0.4.16")
-      cholmod <- reticulate::import("sksparse.cholmod")
       R <- cholmod$cholesky(V)
-    } else {
-      R <- mgcv::mchol(V);piv <- attr(R,"pivot")
-    }
-
-    Xf <- as(Xf,"dgCMatrix")
-    Xfp <- as(Xfp,"dgCMatrix")
-    
-    if (python_cholmod) {
       WX <- as.matrix(R$solve_Lt(Xfp,use_LDLt_decomposition=FALSE))
       XVX <- as.matrix(R$solve_Lt(Xf,use_LDLt_decomposition=FALSE))
     } else {
+      R <- mgcv::mchol(V);piv <- attr(R,"pivot")
       if (is.null(piv)) { ## not sure this can happen any more
         WX <- as(solve(t(R),Xfp),"matrix")    ## V^{-.5}Xp -- fit parameterization
         XVX <- as(solve(t(R),Xf),"matrix")  ## same in original parameterization
@@ -173,32 +181,32 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
     XVX <- crossprod(XVX) ## X'V^{-1}X original parameterization
     XVXS <- crossprod(WX)+Sp^2/scale ## X'V^{-1}X + S fit para
   }    
-      if (TRUE) { ## Cholesky based XVX and R  
-        R <- mgcv::mchol(XVX)
-        R[,attr(R,"pivot")] <- R; attr(R,"pivot") <- NULL
-      } else { ## QR based XVX and R ## DEBUG ONLY requires XVX pre-crossprod
-        qrz <- qr(XVX,LAPACK=TRUE)
-        R <- qr.R(qrz); R[,qrz$pivot] <- R
-        XVX <- crossprod(R) ## X'V^{-1}X original parameterization
-      }
-      ## Alternative cov matrix calculation. Basic
-      ## idea is that cov matrix is computed stably in
-      ## fitting parameterization, and then transformed to
-      ## original parameterization.
+  if (TRUE) { ## Cholesky based XVX and R  
+    R <- mgcv::mchol(XVX)
+    R[,attr(R,"pivot")] <- R; attr(R,"pivot") <- NULL
+  } else { ## QR based XVX and R ## DEBUG ONLY requires XVX pre-crossprod
+    qrz <- qr(XVX,LAPACK=TRUE)
+    R <- qr.R(qrz); R[,qrz$pivot] <- R
+    XVX <- crossprod(R) ## X'V^{-1}X original parameterization
+  }
+  ## Alternative cov matrix calculation. Basic
+  ## idea is that cov matrix is computed stably in
+  ## fitting parameterization, and then transformed to
+  ## original parameterization.
      
-      if (TRUE) { ## Cholesky version... 
-        Rf <- mgcv::mchol(XVXS) ## Rf'Rf = X'V^{-1}X + S in fit para
-        Ri <- backsolve(Rf,diag(ncol(Rf))); ind <- attr(Rf,"pivot")
-        ind[ind] <- 1:length(ind)
-        Ri <- Ri[ind,] ## unpivoted square root of cov matrix in fitting parameterization Ri Ri' = cov
-      } else {  ## QR version...
-        qrx <- qr(rbind(WX,Sp/sqrt(scale)),LAPACK=TRUE)
-        Ri <- backsolve(qr.R(qrx),diag(ncol(WX))) ## R'R =X'V^{-1}X + S in fit para
-        ind <- qrx$pivot;ind[ind] <- 1:length(ind)## qrx$pivot
-        Ri <- Ri[ind,] ## unpivoted square root of cov matrix in fitting parameterization Ri Ri' = cov
-      }
-      Vb <- B%*%Ri; Vb <- Vb%*%t(Vb)
-      list(Vb=Vb,XVX=XVX,R=R) 
+  if (TRUE) { ## Cholesky version... 
+    Rf <- mgcv::mchol(XVXS) ## Rf'Rf = X'V^{-1}X + S in fit para
+    Ri <- backsolve(Rf,diag(ncol(Rf))); ind <- attr(Rf,"pivot")
+    ind[ind] <- 1:length(ind)
+    Ri <- Ri[ind,] ## unpivoted square root of cov matrix in fitting parameterization Ri Ri' = cov
+  } else {  ## QR version...
+    qrx <- qr(rbind(WX,Sp/sqrt(scale)),LAPACK=TRUE)
+    Ri <- backsolve(qr.R(qrx),diag(ncol(WX))) ## R'R =X'V^{-1}X + S in fit para
+    ind <- qrx$pivot;ind[ind] <- 1:length(ind)## qrx$pivot
+    Ri <- Ri[ind,] ## unpivoted square root of cov matrix in fitting parameterization Ri Ri' = cov
+  }
+  Vb <- B%*%Ri; Vb <- Vb%*%t(Vb)
+  list(Vb=Vb,XVX=XVX,R=R) 
 } ## getVb
 
 
