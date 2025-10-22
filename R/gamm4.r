@@ -142,7 +142,7 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
     ## if V=diag(v) and s scale and phi = crossprod(root.phi) then...
     ## (V+ZphiZ's)^-1 = V^{-1} - V^{-1}Z(phi^{-1}/s+Z'V^{-1}Z)^{-1} Z'V^{-1} 
     vi <- 1/v
-    if (nrow(Zt)>0) {
+    if (nrow(Zt)>0) { ## BUG: root.phi need not be full rank if some vcomp zero!!
       V <- tcrossprod(solve(root.phi))/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt)
       if (python_cholmod) {
         R <- cholmod$cholesky(V)
@@ -183,6 +183,7 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
   }    
   if (TRUE) { ## Cholesky based XVX and R  
     R <- mgcv::mchol(XVX)
+    if (all.equal(attr(R,"pivot"),-1)==TRUE) R <- mgcv::mchol(as.matrix(XVX))
     R[,attr(R,"pivot")] <- R; attr(R,"pivot") <- NULL
   } else { ## QR based XVX and R ## DEBUG ONLY requires XVX pre-crossprod
     qrz <- qr(XVX,LAPACK=TRUE)
