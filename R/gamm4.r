@@ -194,8 +194,8 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
     XVXS <- crossprod(WX)+Sp^2/scale ## X'V^{-1}X + S fit para
   }    
   if (TRUE) { ## Cholesky based XVX and R  
-    R <- mgcv::mchol(XVX)
-    if (all.equal(attr(R,"pivot"),-1)==TRUE) R <- mgcv::mchol(as.matrix(XVX))
+    R <- try(mgcv::mchol(XVX),silent=TRUE) ## can be semi-def so only dense and pivot works
+    if (inherits(R,"try-error")||all.equal(attr(R,"rank"),-1)==TRUE) R <- mgcv::mchol(as.matrix(XVX))
     R[,attr(R,"pivot")] <- R; attr(R,"pivot") <- NULL
   } else { ## QR based XVX and R ## DEBUG ONLY requires XVX pre-crossprod
     qrz <- qr(XVX,LAPACK=TRUE)
