@@ -137,13 +137,25 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
 
   Xf <- as(Xf,"dgCMatrix")
   Xfp <- as(Xfp,"dgCMatrix")
-
+  if (nrow(Zt)) { ## drop 0 variance components before proceeding
+    phi <- crossprod(root.phi)
+    ind <- which(diag(phi)<.Machine$double.eps^.9*norm(phi))
+    if (length(ind)) { ## drop zero variance terms
+      phi <- phi[-ind,-ind]
+      root.phi <- root.phi[,-ind]
+      Zt <- Zt[-ind,] ## better to be using Z?
+    }
+    if (woodbury && nrow(Zt)) { ## should really use Cholesky and chol2inv
+      phi.inv <- try(solve(phi),silent=TRUE) ## could fail if phi semi-def
+      if (inherits(phi.inv,"try-error")) woodbury <- FALSE ## in which case fall back on direct
+    }
+  }  
   if (woodbury) { ## Woodbury formula version of XVX computations
     ## if V=diag(v) and s scale and phi = crossprod(root.phi) then...
     ## (V+ZphiZ's)^-1 = V^{-1} - V^{-1}Z(phi^{-1}/s+Z'V^{-1}Z)^{-1} Z'V^{-1} 
     vi <- 1/v
-    if (nrow(Zt)>0) { ## BUG: root.phi need not be full rank if some vcomp zero!!
-      V <- tcrossprod(solve(root.phi))/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt)
+    if (nrow(Zt)>0) {
+      V <- phi.inv/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt)
       if (python_cholmod) {
         R <- cholmod$cholesky(V)
 	X1 <- as.matrix(R$solve_Lt(Zt%*%(Xf*vi),use_LDLt_decomposition=FALSE))
@@ -484,7 +496,7 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
 
     if (length(ind)) { ## extract columns corresponding to non-smooth r.e.s 
       Zt <- getME(ret$mer,"Zt")[ind,] ## extracting random effects model matrix
-      root.phi <- getME(ret$mer,"Lambdat")[ind,ind] ## and corresponding sqrt of cov matrix (phi)
+      root.phi <- getME(ret$mer,"Lambdat")[,ind] ## and corresponding sqrt of cov matrix (phi) (was ind,ind - seems wrong)
     }
 
     object$sp <- sp
