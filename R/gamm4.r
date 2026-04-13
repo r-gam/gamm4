@@ -154,14 +154,18 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
     if (woodbury && nrow(Zt)) {
       if (python_cholmod) {
         phi_py = reticulate::r_to_py(phi)$copy()
-        cho_phi_py <- cholmod$cho_factor(phi_py, supernodal_mode="auto", lower=TRUE)
-
-        perm <- as.integer(reticulate::py_to_r(cho_phi_py$get_perm()) + 1)
-        inv_perm <- perm
-        inv_perm[perm] <- 1:length(perm)
-
-        phi.rphi <- reticulate::py_to_r(scipy_sparse$csc_matrix(cho_phi_py$R))[,inv_perm]
-
+        cho_phi_py <- try(
+          cholmod$cho_factor(phi_py, supernodal_mode="auto", lower=TRUE),
+          silent = TRUE
+        )
+        if (inherits(cho_phi_py, "try-error")) {
+          woodbury <- FALSE
+        } else {
+          perm <- as.integer(reticulate::py_to_r(cho_phi_py$get_perm()) + 1)
+          inv_perm <- perm
+          inv_perm[perm] <- 1:length(perm)
+          phi.rphi <- reticulate::py_to_r(scipy_sparse$csc_matrix(cho_phi_py$R))[,inv_perm]
+        }
       } else {
         phi.inv <- try(chol2inv(chol(phi)), silent = TRUE)
         if (inherits(phi.inv,"try-error")) woodbury <- FALSE ## in which case fall back on direct
@@ -219,34 +223,22 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
     }
 
     if (python_cholmod) {
-      # Python Bridge
-
-      # Cholesky decomposition
-      V_py = reticulate::r_to_py(V)
+      # Only system="A" applies CHOLMOD's internal permutation correctly.
+      V_py = reticulate::r_to_py(V)$copy()
       R <- cholmod$cho_factor(V_py, supernodal_mode="auto", lower=TRUE)
-
-      # Prepare permutation and inverse permutation arrays
-      perm <- as.integer(reticulate::py_to_r(R$get_perm()) + 1)
-      inv_perm <- perm
-      inv_perm[perm] <- 1:length(perm)
-
-      # WX
-      XFP_py <- reticulate::r_to_py(Xfp[perm,])$copy()
-      WX <- reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(XFP_py,system="Lt")))[inv_perm,]
-
-      # XVX
-      XF_py <- reticulate::r_to_py(Xf[perm,])$copy()
-      XVX <- reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(XF_py,system="Lt")))[inv_perm,]
+      XFP_py <- reticulate::r_to_py(Xfp)$copy()
+      XF_py <- reticulate::r_to_py(Xf)$copy()
+      XVXS <- t(Xfp) %*% reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(XFP_py, system="A"))) + Sp^2/scale
+      XVX <- t(Xf) %*% reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(XF_py, system="A")))
 
     } else {
       # Native R
       R <- mgcv::mchol(V);piv <- attr(R,"pivot")
       WX <- as(solve(t(R),Xfp[piv,]),"matrix")    ## V^{-.5}Xp -- fit parameterization
       XVX <- as(solve(t(R),Xf[piv,]),"matrix")  ## same in original parameterization
+      XVX <- crossprod(XVX) ## X'V^{-1}X original parameterization
+      XVXS <- crossprod(WX)+Sp^2/scale ## X'V^{-1}X + S fit para
     }
-
-    XVX <- crossprod(XVX) ## X'V^{-1}X original parameterization
-    XVXS <- crossprod(WX)+Sp^2/scale ## X'V^{-1}X + S fit para
   }
 
   cholmod_fallback <- FALSE
@@ -275,7 +267,7 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
 
   cholmod_fallback <- FALSE
 
-if (python_cholmod) {
+  if (python_cholmod) {
     XVXS_py <- reticulate::r_to_py(XVXS)$copy()
     Rf <- try(cholmod$cho_factor(XVXS_py, supernodal_mode="auto", lower=TRUE), silent=TRUE) ## Rf'Rf = X'V^{-1}X + S in fit para
 
@@ -341,7 +333,7 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
   mf[[1]] <- as.name("model.frame")
   pmf <- mf
   gmf <- eval(mf, parent.frame()) # the model frame now contains all the data, for the gam part only 
-  gam.terms <- attr(gmf,"terms") # terms object for `gam' part of fit --get need this for prediction to work properly
+  gam.terms <- attr(gmf,"terms") # terms object for `gam' part of fit -- need this for prediction to work properly
 
   if (length(random.vars)) {
     mf$formula <- as.formula(paste(paste(deparse(gp$fake.formula,
@@ -612,7 +604,6 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
     object$prior.weights <- G$w
     object$weights <- if (linear) object$prior.weights else ret$mer@resp$sqrtWrkWt()^2
     v <- scale/object$weights
-    V <- Diagonal(n=length(v),x=v)
         
     a <- getVb(v,Zt,root.phi,scale,G$Xf,Xfp,Sp,B,python_cholmod,ncol(Zt)>nrow(Zt))
     Vb <- a$Vb; XVX <- a$XVX; object$R <- a$R
