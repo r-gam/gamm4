@@ -131,93 +131,177 @@ getVb <- function(v,Zt,root.phi,scale,Xf,Xfp,Sp,B,python_cholmod=FALSE,woodbury=
 ##  and Vb = B Vbp B' in orginal para.
 
   if (python_cholmod) {
-      reticulate::py_require(packages="scikit-sparse>=0.4.16")
-      cholmod <- reticulate::import("sksparse.cholmod")
+      reticulate::py_require(packages="scikit-sparse~=0.5.0")
+      cholmod <- reticulate::import("sksparse.cholmod", convert=FALSE)
+      scipy_sparse <- reticulate::import("scipy.sparse", convert=FALSE)
   }
 
+  # Ensure sparse matrices
   Xf <- as(Xf,"dgCMatrix")
   Xfp <- as(Xfp,"dgCMatrix")
-  if (nrow(Zt)) { ## drop 0 variance components before proceeding
+
+  # drop 0 variance components before proceeding
+  if (nrow(Zt)) {
     phi <- crossprod(root.phi)
     ind <- which(diag(phi)<.Machine$double.eps^.9*norm(phi))
+    
     if (length(ind)) { ## drop zero variance terms
       phi <- phi[-ind,-ind]
       root.phi <- root.phi[,-ind]
       Zt <- Zt[-ind,] ## better to be using Z?
     }
-    if (woodbury && nrow(Zt)) { ## should really use Cholesky and chol2inv
-      phi.inv <- try(solve(phi),silent=TRUE) ## could fail if phi semi-def
-      if (inherits(phi.inv,"try-error")) woodbury <- FALSE ## in which case fall back on direct
+
+    if (woodbury && nrow(Zt)) {
+      if (python_cholmod) {
+        phi_py = reticulate::r_to_py(phi)$copy()
+        cho_phi_py <- try(cholmod$cho_factor(phi_py, supernodal_mode="auto", lower=TRUE), silent = TRUE)
+        if (inherits(cho_phi_py, "try-error")) {
+          woodbury <- FALSE
+
+        } else {
+          perm <- as.integer(reticulate::py_to_r(cho_phi_py$get_perm()) + 1)
+          inv_perm <- perm
+          inv_perm[perm] <- 1:length(perm)
+          phi.rphi <- reticulate::py_to_r(scipy_sparse$csc_matrix(cho_phi_py$R))[,inv_perm]
+        }
+      } else {
+        phi.inv <- try(chol2inv(chol(phi)), silent = TRUE)
+        if (inherits(phi.inv,"try-error")) woodbury <- FALSE
+      }
     }
-  }  
-  if (woodbury) { ## Woodbury formula version of XVX computations
+  }
+  
+  if (woodbury) { 
+    ## Woodbury formula version of XVX computations
     ## if V=diag(v) and s scale and phi = crossprod(root.phi) then...
     ## (V+ZphiZ's)^-1 = V^{-1} - V^{-1}Z(phi^{-1}/s+Z'V^{-1}Z)^{-1} Z'V^{-1} 
+    
     vi <- 1/v
     if (nrow(Zt)>0) {
-      V <- phi.inv/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt)
       if (python_cholmod) {
-        R <- cholmod$cholesky(V)
-	X1 <- as.matrix(R$solve_Lt(Zt%*%(Xf*vi),use_LDLt_decomposition=FALSE))
-	XVX <- t(Xf)%*%(vi*Xf-vi*t(Zt)%*%as.matrix(R$solve_L(X1,use_LDLt_decomposition=FALSE)))
-	X1 <- as.matrix(R$solve_Lt(Zt%*%(Xfp*vi),use_LDLt_decomposition=FALSE))
-	XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Zt)%*%as.matrix(R$solve_L(X1,use_LDLt_decomposition=FALSE))) + Sp^2/scale
+        Ztilde_t <- phi.rphi %*% Zt
+        V <- Diagonal(n = nrow(Ztilde_t))/scale+Ztilde_t%*%Diagonal(n=length(vi),x=vi)%*%t(Ztilde_t)
+        V_py <- reticulate::r_to_py(V)$copy()
+        R <- cholmod$cho_factor(V_py,supernodal_mode="auto", lower=TRUE)
+
+        # Prepare permuation and inverse permutation arrays
+        perm <- as.integer(reticulate::py_to_r(R$get_perm()) + 1)
+        inv_perm <- perm
+        inv_perm[perm] <- 1:length(perm)
+
+        #XVX
+        Z1 <- (Ztilde_t%*%(Xf*vi))[perm,]
+        Z1_py = reticulate::r_to_py(Z1)$copy()
+        X1 <- R$solve(Z1_py, system="L")
+        XVX <- t(Xf)%*%(vi*Xf-vi*t(Ztilde_t)%*%(reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(X1, system="Lt")))[inv_perm,]))
+        
+        # XVXS
+        ZS1 <- (Ztilde_t%*%(Xfp*vi))[perm,]
+        ZS1_py <- reticulate::r_to_py(ZS1)$copy()
+        XS1 <- R$solve(ZS1_py,system="L")
+        XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Ztilde_t)%*%(reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(XS1,system="Lt")))[inv_perm,])) + Sp^2/scale
+        
       } else {
+        V <- phi.inv/scale+Zt%*%Diagonal(n=length(vi),x=vi)%*%t(Zt)
         R <- mgcv::mchol(V)
         ipiv <- piv <- attr(R,"pivot"); ipiv[piv] <- 1:length(piv)
         XVX <- t(Xf)%*%(vi*Xf-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xf*vi))[piv,]))[ipiv,])
-        # XVX0 <- t(Xf)%*%solve(Diagonal(n=length(v),x=v)+scale*crossprod(root.phi%*%Zt),Xf) ## equivalent direct
         XVXS <- t(Xfp)%*%(vi*Xfp-vi*t(Zt)%*%solve(R,solve(t(R),(Zt%*%(Xfp*vi))[piv,]))[ipiv,]) + Sp^2/scale
       }	
     } else {
       XVX <- t(Xf)%*%(vi*Xf); XVXS <- t(Xfp)%*%(vi*Xfp) + Sp^2/scale
     }
-  } else { ## Direct Xf'(diag(v) + crossprod(root.phi%*%Zt))^{-1} Xf
-    V <- Diagonal(n=length(v),x=v)
-    if (nrow(Zt)>0) V <- V + crossprod(root.phi%*%Zt)*scale ## data or pseudodata cov matrix, treating smooths as fixed now
+  } else { 
+      ## Direct Xf'(diag(v) + crossprod(root.phi%*%Zt))^{-1} Xf
+      V <- Diagonal(n=length(v),x=v)
+    
+    if (nrow(Zt)>0) {
+      ## data or pseudodata cov matrix, treating smooths as fixed now
+      V <- V + crossprod(root.phi%*%Zt)*scale 
+    }
 
     if (python_cholmod) {
-      R <- cholmod$cholesky(V)
-      WX <- as.matrix(R$solve_Lt(Xfp,use_LDLt_decomposition=FALSE))
-      XVX <- as.matrix(R$solve_Lt(Xf,use_LDLt_decomposition=FALSE))
+      # Python Bridge
+      V_py = reticulate::r_to_py(V)$copy()
+      R <- cholmod$cho_factor(V_py, supernodal_mode="auto", lower=TRUE)
+      
+      XFP_py <- reticulate::r_to_py(Xfp)$copy()
+      XF_py <- reticulate::r_to_py(Xf)$copy()
+
+      # X'V^{-1}X
+      XVXS <- t(Xfp) %*% reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(XFP_py, system="A"))) + Sp^2/scale
+      XVX <- t(Xf) %*% reticulate::py_to_r(scipy_sparse$csc_matrix(R$solve(XF_py, system="A")))
+
     } else {
+      # Native R
       R <- mgcv::mchol(V);piv <- attr(R,"pivot")
-      if (is.null(piv)) { ## not sure this can happen any more
-        WX <- as(solve(t(R),Xfp),"matrix")    ## V^{-.5}Xp -- fit parameterization
-        XVX <- as(solve(t(R),Xf),"matrix")  ## same in original parameterization
-      } else {
-        WX <- as(solve(t(R),Xfp[piv,]),"matrix")    ## V^{-.5}Xp -- fit parameterization
-        XVX <- as(solve(t(R),Xf[piv,]),"matrix")  ## same in original parameterization
-      }
+      
+      WX <- as(solve(t(R),Xfp[piv,]),"matrix")    ## V^{-.5}Xp -- fit parameterization
+      XVX <- as(solve(t(R),Xf[piv,]),"matrix")  ## same in original parameterization
+
+      # there is no need to undo the permutations because crossproduct below would cancel it
+      XVX <- crossprod(XVX) ## X'V^{-1}X original parameterization
+      XVXS <- crossprod(WX)+Sp^2/scale ## X'V^{-1}X + S fit para
     }
-    XVX <- crossprod(XVX) ## X'V^{-1}X original parameterization
-    XVXS <- crossprod(WX)+Sp^2/scale ## X'V^{-1}X + S fit para
-  }    
-  if (TRUE) { ## Cholesky based XVX and R  
+
+
+  }
+
+  cholmod_fallback <- FALSE
+  if (python_cholmod) {
+    XVX_py <- reticulate::r_to_py(XVX)$copy()
+    R_chol <- try(cholmod$cho_factor(XVX_py, supernodal_mode="auto", lower=TRUE), silent=TRUE)
+
+    if (inherits(R_chol,"try-error")) {
+      cholmod_fallback <- TRUE
+    } else {
+
+      # Prepare permutation and inverse permutation arrays
+      perm <- as.integer(reticulate::py_to_r(R_chol$get_perm()) + 1)
+      inv_perm <- perm
+      inv_perm[perm] <- 1:length(perm)
+
+      R <- reticulate::py_to_r(scipy_sparse$csc_matrix(R_chol$R))[,inv_perm]
+    }
+  }
+
+  if (!python_cholmod || cholmod_fallback) {
     R <- try(mgcv::mchol(XVX),silent=TRUE) ## can be semi-def so only dense and pivot works
     if (inherits(R,"try-error")||all.equal(attr(R,"rank"),-1)==TRUE) R <- mgcv::mchol(as.matrix(XVX))
-    R[,attr(R,"pivot")] <- R; attr(R,"pivot") <- NULL
-  } else { ## QR based XVX and R ## DEBUG ONLY requires XVX pre-crossprod
-    qrz <- qr(XVX,LAPACK=TRUE)
-    R <- qr.R(qrz); R[,qrz$pivot] <- R
-    XVX <- crossprod(R) ## X'V^{-1}X original parameterization
+    R[,attr(R,"pivot")] <- R; attr(R,"pivot") <- NULL # inverse permutation
   }
-  ## Alternative cov matrix calculation. Basic
-  ## idea is that cov matrix is computed stably in
-  ## fitting parameterization, and then transformed to
-  ## original parameterization.
-     
-  if (TRUE) { ## Cholesky version... 
-    Rf <- mgcv::mchol(XVXS) ## Rf'Rf = X'V^{-1}X + S in fit para
+
+  cholmod_fallback <- FALSE
+
+if (python_cholmod) {
+    XVXS_py <- reticulate::r_to_py(XVXS)$copy()
+    Rf <- try(cholmod$cho_factor(XVXS_py, supernodal_mode="auto", lower=TRUE), silent=TRUE) ## Rf'Rf = X'V^{-1}X + S in fit para
+
+    if (inherits(Rf,"try-error")) {
+      cholmod_fallback <- TRUE
+    } else {
+      # Get inverse decomposition in the permuted space
+      id_py <- reticulate::r_to_py(diag(ncol(XVXS)))$copy()
+      Ri <- reticulate::py_to_r(scipy_sparse$csc_matrix(Rf$solve(id_py,system="Lt")))
+
+      # Prepare permutation and inverse permutation arrays
+      perm <- as.integer(reticulate::py_to_r(Rf$get_perm()) + 1)
+      inv_perm <- perm
+      inv_perm[perm] <- 1:length(perm)
+
+      # Apply inverse permutation to the inverted cholesky factor to project into original space
+      Ri <- Ri[inv_perm,]
+    }
+  }
+
+  if (!python_cholmod || cholmod_fallback) {
+    Rf <- try(mgcv::mchol(XVXS),silent=TRUE) ## Rf'Rf = X'V^{-1}X + S in fit para
+    if (inherits(Rf,"try-error")||all.equal(attr(Rf,"rank"),-1)==TRUE) Rf <- mgcv::mchol(as.matrix(XVXS))
     Ri <- backsolve(Rf,diag(ncol(Rf))); ind <- attr(Rf,"pivot")
     ind[ind] <- 1:length(ind)
-    Ri <- Ri[ind,] ## unpivoted square root of cov matrix in fitting parameterization Ri Ri' = cov
-  } else {  ## QR version...
-    qrx <- qr(rbind(WX,Sp/sqrt(scale)),LAPACK=TRUE)
-    Ri <- backsolve(qr.R(qrx),diag(ncol(WX))) ## R'R =X'V^{-1}X + S in fit para
-    ind <- qrx$pivot;ind[ind] <- 1:length(ind)## qrx$pivot
-    Ri <- Ri[ind,] ## unpivoted square root of cov matrix in fitting parameterization Ri Ri' = cov
+    Ri <- Ri[ind,]
   }
+
   Vb <- B%*%Ri; Vb <- Vb%*%t(Vb)
   list(Vb=Vb,XVX=XVX,R=R) 
 } ## getVb
@@ -229,6 +313,13 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
 # Routine to fit a GAMM to some data. Fixed and smooth terms are defined in the formula, but the wiggly 
 # parts of the smooth terms are treated as random effects. The onesided formula random defines additional 
 # random terms. 
+
+  if (isTRUE(python_cholmod) && !requireNamespace("reticulate", quietly = TRUE)) {
+    stop(
+      "`python_cholmod = TRUE` requires the `reticulate` package to be installed.",
+      call. = FALSE
+    )
+  }
 
 
   if (!is.null(random)) {
@@ -494,9 +585,10 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
       }
     }
 
+    root.phi <- Matrix(0, 0, 0, sparse = TRUE)
     if (length(ind)) { ## extract columns corresponding to non-smooth r.e.s 
       Zt <- getME(ret$mer,"Zt")[ind,] ## extracting random effects model matrix
-      root.phi <- getME(ret$mer,"Lambdat")[,ind] ## and corresponding sqrt of cov matrix (phi) (was ind,ind - seems wrong)
+      root.phi <- getME(ret$mer,"Lambdat")[ind,ind] ## and corresponding sqrt of cov matrix (phi)
     }
 
     object$sp <- sp
@@ -519,10 +611,8 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
     object$prior.weights <- G$w
     object$weights <- if (linear) object$prior.weights else ret$mer@resp$sqrtWrkWt()^2
     v <- scale/object$weights
-    V <- Diagonal(n=length(v),x=v)
-        
-    a <- getVb(v,Zt,root.phi,scale,G$Xf,Xfp,Sp,B,python_cholmod,ncol(Zt)>nrow(Zt))
     
+    a <- getVb(v,Zt,root.phi,scale,G$Xf,Xfp,Sp,B,python_cholmod,ncol(Zt)>nrow(Zt))
     Vb <- a$Vb; XVX <- a$XVX; object$R <- a$R
 
     object$edf<-rowSums(Vb*t(XVX))

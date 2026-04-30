@@ -16,5 +16,5 @@ Description: Estimate generalized additive mixed models via a version of
          function gamm() from 'mgcv', using 'lme4' for estimation.
 Depends: R (>= 4.4.0), methods, Matrix (>= 1.7-0), lme4 (>= 1.0), mgcv (>= 1.9-2)
 License: GPL (>= 2)
-Suggests: reticulate
+Suggests: reticulate (>= 1.41.0)
 NeedsCompilation: no
