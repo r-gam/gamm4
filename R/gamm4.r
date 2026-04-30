@@ -585,6 +585,7 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
       }
     }
 
+    root.phi <- Matrix(0, 0, 0, sparse = TRUE)
     if (length(ind)) { ## extract columns corresponding to non-smooth r.e.s 
       Zt <- getME(ret$mer,"Zt")[ind,] ## extracting random effects model matrix
       root.phi <- getME(ret$mer,"Lambdat")[ind,ind] ## and corresponding sqrt of cov matrix (phi)
@@ -610,7 +611,7 @@ gamm4 <- function(formula,random=NULL,family=gaussian(),data=list(),weights=NULL
     object$prior.weights <- G$w
     object$weights <- if (linear) object$prior.weights else ret$mer@resp$sqrtWrkWt()^2
     v <- scale/object$weights
-        
+    
     a <- getVb(v,Zt,root.phi,scale,G$Xf,Xfp,Sp,B,python_cholmod,ncol(Zt)>nrow(Zt))
     Vb <- a$Vb; XVX <- a$XVX; object$R <- a$R
 
