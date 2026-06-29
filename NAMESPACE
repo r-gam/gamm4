@@ -2,7 +2,6 @@ import(Matrix)
 import(lme4)
 import(mgcv)
 import(methods)
-#importFrom(Matrix,t,crossprod,solve,rowSums)
 export(gamm4)
 importFrom("stats", "as.formula", "delete.response", "deviance",
      "gaussian", "reformulate", "residuals")
